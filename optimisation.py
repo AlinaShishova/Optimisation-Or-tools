@@ -2,7 +2,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from ortools.sat.python import cp_model
 
-def solve(jobs, constraints, tasks, machines, downtime, breaks):
+def solve(jobs, constraints, tasks, machines, downtime):
     # Создание модели
     model = cp_model.CpModel()
 
@@ -20,21 +20,24 @@ def solve(jobs, constraints, tasks, machines, downtime, breaks):
         model.Add(start[job1] >= end[job2])
 
     # Ограничения: порядок выполнения работ на одной машине
+   # Для каждой машины создаем интервал и добавляем ограничения с учетом использования ресурса
     for machine in machines:
+        # Задачи, выполняющиеся на текущей машине
         machine_jobs = [(job, m) for job, m in tasks.keys() if m == machine]
-        for i, (job1, _) in enumerate(machine_jobs):
-            for job2, _ in machine_jobs[i + 1:]:
-                # Булевая переменная для определения порядка
-                job1_before_job2 = model.NewBoolVar(f"{job1}_before_{job2}")
+        
+        # Список интервалов для каждой задачи на текущей машине
+        intervals = []
+        demands = []
+        
+        for job, _ in machine_jobs:
+            duration = tasks[(job, machine)]
+            intervals.append(model.NewIntervalVar(start[job], duration, end[job], f"interval_{job}"))
+            demands.append(1)  # Каждая задача требует 1 единицу ресурса (машины)
 
-                # Если job1 выполняется перед job2
-                model.Add(start[job1] + tasks[(job1, machine)] <= start[job2]).OnlyEnforceIf(job1_before_job2)
+        # Ограничение на использование одной машины за раз (capacity=1)
+        model.AddCumulative(intervals, demands, 2)  # capacity=1 указывает, что на машине может работать только 1 задача одновременно
 
-                # Если job2 выполняется перед job1
-                model.Add(start[job2] + tasks[(job2, machine)] <= start[job1]).OnlyEnforceIf(job1_before_job2.Not())
 
-                # Условие: одно из двух должно быть истинным
-                model.AddBoolOr([job1_before_job2, job1_before_job2.Not()])
 
     # Ограничения: простои
     for (job, machine), (duration, dt_start, dt_end) in downtime.items():
@@ -63,7 +66,7 @@ def solve(jobs, constraints, tasks, machines, downtime, breaks):
 
 
 
-def paint_grafic(machines,tasks,start_times, end_times,):
+def paint_grafic(machines,tasks,start_times, end_times):
     #Построение графика
     fig, ax =plt.subplots(figsize=(10,6))
 
@@ -125,6 +128,6 @@ jobs = set(job for job, machine in tasks.keys())
 machines = set(machine for job, machine in tasks.keys())
 
 
-start_times,end_times = solve(jobs,constraints,tasks,machines,downtime,breaks)
+start_times,end_times = solve(jobs,constraints,tasks,machines,downtime)
 
 paint_grafic(machines,tasks,start_times,end_times)
