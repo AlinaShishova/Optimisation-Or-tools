@@ -20,13 +20,14 @@ def solve(jobs, constraints, tasks, machines, downtime):
         model.Add(start[job1] >= end[job2])
 
     # Ограничения: порядок выполнения работ на одной машине
-   # Для каждой машины создаем интервал и добавляем ограничения с учетом использования ресурса
+    # Для каждой машины создаем интервал и добавляем ограничения с учетом использования ресурса
     for machine in machines:
         # Задачи, выполняющиеся на текущей машине
         machine_jobs = [(job, m) for job, m in tasks.keys() if m == machine]
         
         # Список интервалов для каждой задачи на текущей машине
         intervals = []
+        # список требований ресурсов для каждой задачи
         demands = []
         
         for job, _ in machine_jobs:
@@ -35,7 +36,7 @@ def solve(jobs, constraints, tasks, machines, downtime):
             demands.append(1)  # Каждая задача требует 1 единицу ресурса (машины)
 
         # Ограничение на использование одной машины за раз (capacity=1)
-        model.AddCumulative(intervals, demands, 2)  # capacity=1 указывает, что на машине может работать только 1 задача одновременно
+        model.AddCumulative(intervals, demands, 1)  # capacity=1 указывает, что на машине может работать только 1 задача одновременно
 
 
 
@@ -43,6 +44,29 @@ def solve(jobs, constraints, tasks, machines, downtime):
     for (job, machine), (duration, dt_start, dt_end) in downtime.items():
         model.Add(start[job] >= dt_start)
         model.Add(end[job] <= dt_end)
+
+
+    #Перерывы 
+    break_start = 30  # Начало перерыва
+    break_end = 40    # Конец перерыва
+   # Ограничения на перерывы
+    for job in jobs:
+        machine = next(m for j, m in tasks.keys() if j == job)  # Узнаем на какой машине работает работа
+        duration = tasks[(job, machine)]  # Продолжительность работы
+
+        # Переменные для булевого состояния (до перерыва или после)
+        before_break = model.NewBoolVar(f'before_break_{job}')
+        after_break = model.NewBoolVar(f'after_break_{job}')
+
+        # Если работа начинается до перерыва
+        model.Add(start[job] + duration <= break_start).OnlyEnforceIf(before_break)
+        
+        # Если работа начинается после перерыва
+        model.Add(start[job] >= break_end).OnlyEnforceIf(after_break)
+        
+        # Обеспечиваем, что работа либо до перерыва, либо после, но не в пределах
+        model.AddBoolOr([before_break, after_break])
+
 
     # Целевая функция: минимизация общего времени завершения всех работ
     total_end_time = model.NewIntVar(0, 10000, "total_end_time")
@@ -119,8 +143,8 @@ downtime = {(row['job'],row['machine']):(row['duration'], row['dt_start'], row['
 downtime1 = {key:value[0] for key, value in downtime.items()}
 tasks.update(downtime1)
 
-# Перерывы
-breaks = {(row['machine']): [(row['start_break'], row ['end_break'])] for _, row in breaks_df.iterrows()} # {R3:[(10,20)]}
+# # Перерывы
+# breaks = {(row['machine']): [(row['start_break'], row ['end_break'])] for _, row in breaks_df.iterrows()} # {R3:[(10,20)]}
 
 
 #Список работ и машин
