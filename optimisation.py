@@ -46,26 +46,61 @@ def solve(jobs, constraints, tasks, machines, downtime):
         model.Add(end[job] <= dt_end)
 
 
-    #Перерывы 
-    break_start = 30  # Начало перерыва
-    break_end = 40    # Конец перерыва
-   # Ограничения на перерывы
+    #Перерывы для всех машин (например, обед) 
+    breaks_for_all_m = [(30,40), (60,70)]
+    # Ограничения на перерывы
     for job in jobs:
+        # Получаем на какой машине работает работа
         machine = next(m for j, m in tasks.keys() if j == job)  # Узнаем на какой машине работает работа
         duration = tasks[(job, machine)]  # Продолжительность работы
 
         # Переменные для булевого состояния (до перерыва или после)
-        before_break = model.NewBoolVar(f'before_break_{job}')
-        after_break = model.NewBoolVar(f'after_break_{job}')
+        before_breaks = []
+        after_breaks = []
+        
+        # Для каждого перерыва
+        for break_start, break_end in  breaks_for_all_m:  #  breaks_for_all_m - список кортежей с началом и концом перерывов
+            before_break = model.NewBoolVar(f'before_break_{job}_{break_start}')
+            after_break = model.NewBoolVar(f'after_break_{job}_{break_end}')
+            
+            # Если работа начинается до перерыва
+            model.Add(start[job] + duration <= break_start).OnlyEnforceIf(before_break)
+            
+            # Если работа начинается после перерыва
+            model.Add(start[job] >= break_end).OnlyEnforceIf(after_break)
+            
+            # Добавляем в списки
+            before_breaks.append(before_break)
+            after_breaks.append(after_break)
+            # Обеспечиваем, что работа либо до какого-то перерыва, либо после, но не в пределах
+            model.AddBoolOr([before_break, after_break])
 
-        # Если работа начинается до перерыва
-        model.Add(start[job] + duration <= break_start).OnlyEnforceIf(before_break)
-        
-        # Если работа начинается после перерыва
-        model.Add(start[job] >= break_end).OnlyEnforceIf(after_break)
-        
-        # Обеспечиваем, что работа либо до перерыва, либо после, но не в пределах
-        model.AddBoolOr([before_break, after_break])
+       
+   
+    # Ограничения на перерывы для каждой машины свои
+    for job in jobs:
+        # Узнаем, на какой машине выполняется задача
+        machine = next(m for j, m in tasks.keys() if j == job)
+        duration = tasks[(job, machine)]  # Продолжительность работы
+
+        # Перерывы для текущей машины
+        machine_breaks = breaks.get(machine, [])
+
+        # Для каждого перерыва на машине
+        for i, (break_start, break_end) in enumerate(machine_breaks):
+            # Переменные для булевого состояния (до перерыва или после)
+            before_break = model.NewBoolVar(f'before_break_{job}_{break_start}_{break_end}')
+            after_break = model.NewBoolVar(f'after_break_{job}_{break_start}_{break_end}')
+
+            # Если работа заканчивается до начала перерыва
+            model.Add(start[job] + duration <= break_start).OnlyEnforceIf(before_break)
+
+            # Если работа начинается после конца перерыва
+            model.Add(start[job] >= break_end).OnlyEnforceIf(after_break)
+
+            # Обеспечиваем, что задача либо до, либо после перерыва
+            model.AddBoolOr([before_break, after_break])
+    
 
 
     # Целевая функция: минимизация общего времени завершения всех работ
@@ -143,9 +178,16 @@ downtime = {(row['job'],row['machine']):(row['duration'], row['dt_start'], row['
 downtime1 = {key:value[0] for key, value in downtime.items()}
 tasks.update(downtime1)
 
-# # Перерывы
-# breaks = {(row['machine']): [(row['start_break'], row ['end_break'])] for _, row in breaks_df.iterrows()} # {R3:[(10,20)]}
-
+# Перерывы
+# Преобразуем данные в словарь: {машина: [(start1, end1), (start2, end2), ...]}
+breaks = {}
+for _, row in breaks_df.iterrows():
+    machine = row['machine']
+    start_break = row['start_break']
+    end_break = row['end_break']
+    if machine not in breaks:
+        breaks[machine] = []
+    breaks[machine].append((start_break, end_break))
 
 #Список работ и машин
 jobs = set(job for job, machine in tasks.keys())
